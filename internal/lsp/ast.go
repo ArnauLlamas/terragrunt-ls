@@ -28,25 +28,6 @@ func TreeCursorRoot(tree *sitter.Tree) *sitter.TreeCursor {
 	return sitter.NewTreeCursor(tree.RootNode())
 }
 
-// func FindLocals(tree *sitter.Tree) *sitter.Node {
-// 	localsBlockPattern := `(
-// 		(identifier) @constant
-// 		(#eq? @constant "locals")
-// 	)`
-// 	q, _ := sitter.NewQuery([]byte(localsBlockPattern), hcl.GetLanguage())
-// 	qc := sitter.NewQueryCursor()
-// 	qc.Exec(q, tree.RootNode())
-//
-// 	for {
-// 		m, ok := qc.NextMatch()
-// 		if !ok {
-// 			break
-// 		}
-//
-// 		m = qc.FilterPredicates(m, )
-// 	}
-// }
-
 func (d *Document) ApplyChangesToAst(newContent string) {
 	d.Ast = ParseAst([]byte(newContent))
 }

@@ -2,32 +2,24 @@ package handler
 
 import (
 	"context"
-	"embed"
 	"encoding/json"
-	"fmt"
-	"strings"
 
-	log "github.com/sirupsen/logrus"
 	"go.lsp.dev/jsonrpc2"
 	lsp "go.lsp.dev/protocol"
 
+	"github.com/ArnauLlamas/terragrunt-ls/internal/docs"
 	_ "github.com/ArnauLlamas/terragrunt-ls/internal/log"
-	// lsplocal "github.com/ArnauLlamas/terragrunt-ls/internal/lsp"
 )
-
-const BASE_DOCS_PATH string = "terragrunt"
-
-//go:embed terragrunt/**/*.md
-var documentation embed.FS
 
 var completionItems []lsp.CompletionItem
 
 func init() {
 	// TODO: Split into different slices so we can return only the ones
 	// that make sense in context
-	getFunctions(&completionItems)
-	getBlocks(&completionItems)
-	getAttributes(&completionItems)
+	buildFunctions(&completionItems)
+	buildBlocks(&completionItems)
+	buildAttributes(&completionItems)
+	buildTopLevelAttributes(&completionItems)
 }
 
 func (h *handler) completion(
@@ -37,7 +29,7 @@ func (h *handler) completion(
 ) error {
 	var err error
 	var params lsp.CompletionParams
-	// var completionItemsTwo []lsp.CompletionItem
+	// var completionItems []lsp.CompletionItem
 
 	err = json.Unmarshal(req.Params(), &params)
 	if err != nil {
@@ -46,7 +38,12 @@ func (h *handler) completion(
 
 	// TODO: Logic based on tree location
 	// doc := h.documents.GetDocument(params.TextDocument.URI)
+	// if doc.Ast.RootNode().HasChanges() {
+	// 	doc.ApplyChangesToAst(doc.Content)
+	// }
+
 	// currentNode := lsplocal.NodeAtPosition(doc.Ast, params.Position)
+	// getLocals(&completionItems, doc.Ast, []byte(doc.Content))
 
 	return reply(ctx, completionItems, nil)
 }
@@ -59,169 +56,68 @@ func createMarkupContent(doc string) lsp.MarkupContent {
 	return markupDoc
 }
 
-func getDocumentationContentsBasedOnDirName(dirName string) (docs []string, err error) {
-	docsPath := fmt.Sprintf("%s/%s", BASE_DOCS_PATH, dirName)
-	dirEntries, err := documentation.ReadDir(docsPath)
-	if err != nil {
-		errorMsg := fmt.Sprintf("Cannot read documentation on %s", docsPath)
-		log.Error(errorMsg)
-		return nil, err
-	}
+func buildFunctions(items *[]lsp.CompletionItem) {
+	functions := docs.GetFunctions()
 
-	for _, entry := range dirEntries {
-		docFile := entry.Name()
-		docContent := readEmbeddedFile(fmt.Sprintf("%s/%s", docsPath, docFile))
-
-		docs = append(docs, docContent)
-	}
-
-	return docs, nil
-}
-
-func readEmbeddedFile(fileName string) (fileContent string) {
-	filePath := fmt.Sprintf(fileName)
-	fileBytes, _ := documentation.ReadFile(filePath)
-
-	return string(fileBytes)
-}
-
-func getFunctions(items *[]lsp.CompletionItem) {
-	docs, err := getDocumentationContentsBasedOnDirName("functions")
-	if err != nil {
-		log.Panic("Failed to read functions documentation")
-		panic(1)
-	}
-
-	for _, doc := range docs {
-		docLines := strings.Split(doc, "\n")
-
-		functionSignature := docLines[0]
-		functionName := strings.Split(functionSignature, "(")[0]
-		content := strings.Join(docLines[1:], "\n")
-
+	for _, function := range functions {
 		item := lsp.CompletionItem{
 			Kind:             lsp.CompletionItemKindFunction,
-			Label:            functionName,
-			Detail:           functionSignature,
-			InsertText:       functionSignature,
+			Label:            function.Item,
+			Detail:           function.InsertText,
+			InsertText:       function.InsertText,
 			InsertTextFormat: lsp.InsertTextFormatSnippet,
-			Documentation:    createMarkupContent(content),
+			Documentation:    createMarkupContent(function.Content),
 		}
 
 		*items = append(*items, item)
 	}
 }
 
-func getBlocks(items *[]lsp.CompletionItem) {
-	docs, err := getDocumentationContentsBasedOnDirName("blocks")
-	if err != nil {
-		log.Panic("Failed to read blocks documentation")
-		panic(1)
-	}
+func buildBlocks(items *[]lsp.CompletionItem) {
+	blocks := docs.GetBlocks()
 
-	for _, doc := range docs {
-		docLines := strings.Split(doc, "\n")
-
-		blockName := docLines[0]
-		content := strings.Join(docLines[1:], "\n")
-
-		// Some blocks are named, these ones will have a $name string
-		// before the opened block in the InsertText field
-		var insertText string
-		switch blockName {
-		case "dependency":
-			insertText = fmt.Sprintf("%s \"$name\" {\n\tconfig_path = $0\n}", blockName)
-		case "generate", "include":
-			insertText = fmt.Sprintf("%s \"$name\" {\n\tpath = $0\n}", blockName)
-		case "terraform":
-			insertText = fmt.Sprintf("%s {\n\tsource = $0\n}", blockName)
-		default:
-			insertText = fmt.Sprintf("%s {\n\t$0\n}", blockName)
-		}
-
+	for _, block := range blocks {
 		item := lsp.CompletionItem{
 			Kind:             lsp.CompletionItemKindSnippet,
-			Label:            fmt.Sprintf("%s", blockName),
-			Detail:           blockName,
-			InsertText:       insertText,
+			Label:            block.Item,
+			Detail:           block.Item,
+			InsertText:       block.InsertText,
 			InsertTextFormat: lsp.InsertTextFormatSnippet,
-			Documentation:    createMarkupContent(content),
+			Documentation:    createMarkupContent(block.Content),
 		}
 
 		*items = append(*items, item)
 	}
 }
 
-func getAttributesTopLevel(items *[]lsp.CompletionItem) {
-	docs, err := getDocumentationContentsBasedOnDirName("attributes-top-level")
-	if err != nil {
-		log.Panic("Failed to read arguments documentation")
-		panic(1)
-	}
+func buildTopLevelAttributes(items *[]lsp.CompletionItem) {
+	attributes := docs.GetTopLevelAttributes()
 
-	for _, doc := range docs {
-		docLines := strings.Split(doc, "\n")
-
-		attrName := docLines[0]
-		content := strings.Join(docLines[1:], "\n")
-
-		// A couple of attributes have a different type, so we build the
-		// InsertText field based on attrName
-		var insertText string
-		switch attrName {
-		case "inputs":
-			insertText = fmt.Sprintf("%s = {\n\t$0\n}", attrName)
-		default:
-			insertText = fmt.Sprintf("%s = \"$0\"", attrName)
-		}
-
+	for _, attribute := range attributes {
 		item := lsp.CompletionItem{
 			Kind:             lsp.CompletionItemKindProperty,
-			Label:            fmt.Sprintf("%s", attrName),
-			Detail:           attrName,
-			InsertText:       insertText,
+			Label:            attribute.Item,
+			Detail:           attribute.Item,
+			InsertText:       attribute.InsertText,
 			InsertTextFormat: lsp.InsertTextFormatSnippet,
-			Documentation:    createMarkupContent(content),
+			Documentation:    createMarkupContent(attribute.Content),
 		}
 
 		*items = append(*items, item)
 	}
 }
 
-func getAttributes(items *[]lsp.CompletionItem) {
-	docs, err := getDocumentationContentsBasedOnDirName("attributes")
-	if err != nil {
-		log.Panic("Failed to read arguments documentation")
-		panic(1)
-	}
+func buildAttributes(items *[]lsp.CompletionItem) {
+	attributes := docs.GetAttributes()
 
-	for _, doc := range docs {
-		docLines := strings.Split(doc, "\n")
-
-		attrName := docLines[0]
-		content := strings.Join(docLines[1:], "\n")
-
-		// A couple of attributes have a different type, so we build the
-		// InsertText field based on attrName
-		var insertText string
-		switch attrName {
-		case "retryable_errors":
-			insertText = fmt.Sprintf("%s = [$0]", attrName)
-		case "skip", "prevent_destroy":
-			insertText = fmt.Sprintf("%s = true", attrName)
-		case "iam_assume_role_duration":
-			insertText = fmt.Sprintf("%s = 14400", attrName)
-		default:
-			insertText = fmt.Sprintf("%s = \"$0\"", attrName)
-		}
-
+	for _, attribute := range attributes {
 		item := lsp.CompletionItem{
 			Kind:             lsp.CompletionItemKindProperty,
-			Label:            fmt.Sprintf("%s", attrName),
-			Detail:           attrName,
-			InsertText:       insertText,
+			Label:            attribute.Item,
+			Detail:           attribute.Item,
+			InsertText:       attribute.InsertText,
 			InsertTextFormat: lsp.InsertTextFormatSnippet,
-			Documentation:    createMarkupContent(content),
+			Documentation:    createMarkupContent(attribute.Content),
 		}
 
 		*items = append(*items, item)

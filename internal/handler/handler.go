@@ -64,7 +64,9 @@ func (h *handler) initialize(
 	return reply(ctx, lsp.InitializeResult{
 		Capabilities: lsp.ServerCapabilities{
 			TextDocumentSync: lsp.TextDocumentSyncOptions{
+				// Change:    lsp.TextDocumentSyncKindIncremental,
 				OpenClose: true,
+				Save:      &lsp.SaveOptions{},
 			},
 			CompletionProvider: &lsp.CompletionOptions{
 				ResolveProvider: false,
