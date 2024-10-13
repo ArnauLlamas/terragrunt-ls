@@ -1,8 +1,18 @@
 locals {
-  a  = "1"
-  aa = read_terragrunt_config(find_in_parent_folders("root.hcl"))
+  one  = "1"
+  file = read_terragrunt_config(find_in_parent_folders("root.hcl"))
 }
 
-inputs = {}
+include "root" {
+  path = "root.hcl"
+}
 
-dependency "pepe" {}
+include "patch" {
+  path = "patch.hcl"
+}
+
+dependency "name" {}
+
+inputs = {
+
+}
