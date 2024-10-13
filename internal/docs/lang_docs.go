@@ -5,8 +5,6 @@ import (
 	"strings"
 
 	log "github.com/sirupsen/logrus"
-	sitter "github.com/smacker/go-tree-sitter"
-	"github.com/smacker/go-tree-sitter/hcl"
 
 	_ "github.com/ArnauLlamas/terragrunt-ls/internal/log"
 )
@@ -15,35 +13,6 @@ type LangDoc struct {
 	Item       string
 	InsertText string
 	Content    string
-}
-
-func GetLocals(tree *sitter.Tree, content []byte) []string {
-	localsPattern := `(
-		(identifier) @constant
-		(#match? @constant "^locals$")
-	)`
-
-	q, _ := sitter.NewQuery([]byte(localsPattern), hcl.GetLanguage())
-	qc := sitter.NewQueryCursor()
-	qc.Exec(q, tree.RootNode())
-
-	var locals []string
-	for {
-		m, ok := qc.NextMatch()
-		if !ok {
-			break
-		}
-
-		m = qc.FilterPredicates(m, content)
-		for _, c := range m.Captures {
-			localsNode := c.Node.NextSibling().NextSibling()
-			for i := 0; i < int(localsNode.ChildCount()); i++ {
-				locals = append(locals, localsNode.Child(i).Child(0).Content(content))
-			}
-		}
-	}
-
-	return locals
 }
 
 func GetBlocks() []LangDoc {
