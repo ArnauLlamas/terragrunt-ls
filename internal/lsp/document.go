@@ -1,6 +1,7 @@
 package lsp
 
 import (
+	"bytes"
 	"net/url"
 	"os"
 
@@ -45,6 +46,51 @@ func (s *DocumentStore) PushDocument(params lsp.DidOpenTextDocumentParams) *Docu
 
 	s.documents[path] = doc
 	return doc
+}
+
+// To use with lsp.TextDocumentSyncKindFull
+func (s *DocumentStore) UpdateDocumentFull(params lsp.DidChangeTextDocumentParams) *Document {
+	path := getPathFromURI(params.TextDocument.URI)
+	doc := s.documents[path]
+
+	newContent := string(params.ContentChanges[0].Text)
+	doc.Content = newContent
+	doc.ApplyChangesToAst(newContent)
+
+	return doc
+}
+
+// To use with lsp.TextDocumentSyncKindIncremental
+func (s *DocumentStore) UpdateDocumentIncremental(
+	params lsp.DidChangeTextDocumentParams,
+) *Document {
+	path := getPathFromURI(params.TextDocument.URI)
+	doc := s.documents[path]
+
+	content := []byte(doc.Content)
+	for _, change := range params.ContentChanges {
+		// TODO: review if this works as expected
+		start, end := change.Range.Start.Character, change.Range.End.Character
+
+		var buf bytes.Buffer
+		buf.Write(content[:start])
+		buf.Write([]byte(change.Text))
+		buf.Write(content[end:])
+		content = buf.Bytes()
+	}
+
+	newContent := string(content)
+	doc.Content = newContent
+	doc.ApplyChangesToAst(newContent)
+
+	return doc
+}
+
+func (s *DocumentStore) PopDocument(params lsp.DidCloseTextDocumentParams) {
+	path := getPathFromURI(params.TextDocument.URI)
+	s.documents[path] = nil
+
+	delete(s.documents, path)
 }
 
 func getPathFromURI(docuri uri.URI) string {

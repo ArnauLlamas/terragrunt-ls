@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	log "github.com/sirupsen/logrus"
 	sitter "github.com/smacker/go-tree-sitter"
@@ -15,6 +16,22 @@ import (
 	lsplocal "github.com/ArnauLlamas/terragrunt-ls/internal/lsp"
 )
 
+var (
+	blocks        []lsp.CompletionItem
+	topLevelAttrs []lsp.CompletionItem
+	attrs         []lsp.CompletionItem
+	functions     []lsp.CompletionItem
+)
+
+var completionItems []lsp.CompletionItem
+
+func init() {
+	buildBlocks(&blocks)
+	buildTopLevelAttributes(&topLevelAttrs)
+	buildAttributes(&attrs)
+	buildFunctions(&functions)
+}
+
 func (h *handler) completion(
 	ctx context.Context,
 	reply jsonrpc2.Replier,
@@ -22,7 +39,6 @@ func (h *handler) completion(
 ) error {
 	var err error
 	var params lsp.CompletionParams
-	var completionItems []lsp.CompletionItem
 
 	err = json.Unmarshal(req.Params(), &params)
 	if err != nil {
@@ -32,25 +48,29 @@ func (h *handler) completion(
 	log.Debug("Looking for completions...")
 
 	doc := h.documents.GetDocument(params.TextDocument.URI)
-	currentNode := lsplocal.NodeAtPosition(doc.Ast, params.Position)
 
-	if lsplocal.IsNodeAtTopLevel(doc.Ast, currentNode) {
-		buildBlocks(&completionItems)
-		buildTopLevelAttributes(&completionItems)
-
-		return reply(ctx, completionItems, nil)
-
-	} else {
-		buildAttributes(&completionItems)
-		buildFunctions(&completionItems)
-		buildLocals(&completionItems, doc.Ast, doc.Content)
-		buildIncludes(&completionItems, doc.Ast, doc.Content)
-		buildDependencys(&completionItems, doc.Ast, doc.Content)
-
-		return reply(ctx, completionItems, nil)
-	}
+	// TODO: Return completions based on AST node position/type
+	// Does not work right now but serves as inspiration
+	// currentNode := lsplocal.NodeAtPosition(doc.Ast, params.Position)
+	// if lsplocal.IsNodeAtTopLevel(doc.Ast, currentNode) {
+	// 	completionItems = append(completionItems, blocks...)
+	// 	completionItems = append(completionItems, topLevelAttrs...)
+	//
+	// 	return reply(ctx, completionItems, nil)
+	//
+	// } else {
+	// 	completionItems = append(completionItems, topLevelAttrs...)
+	// 	completionItems = append(completionItems, functions...)
+	//
+	// 	buildLocals(&completionItems, doc.Ast, doc.Content)
+	// 	buildIncludes(&completionItems, doc.Ast, doc.Content)
+	// 	buildDependencys(&completionItems, doc.Ast, doc.Content)
+	//
+	// 	return reply(ctx, completionItems, nil)
+	// }
 
 	// TODO: Return attributes completions of current block
+	// Does not work right now but serves as inspiration
 	// lsplocal.LogNode(currentNode, doc.Content)
 	// lsplocal.LogNode(currentNode.Parent(), doc.Content)
 	//
@@ -59,6 +79,43 @@ func (h *handler) completion(
 	// }
 	//
 	// return reply(ctx, completionItems, nil)
+
+	// WARN: Just return all completions for now
+	completionItems = append(completionItems, blocks...)
+	completionItems = append(completionItems, topLevelAttrs...)
+	completionItems = append(completionItems, topLevelAttrs...)
+	completionItems = append(completionItems, functions...)
+
+	// following function should also be retriggered on save doc/change doc
+	h.updateVariables(&completionItems, doc.Ast, doc.Content, params.Position)
+	h.removeDuplicatesCompletionItems(&completionItems)
+
+	return reply(ctx, completionItems, nil)
+}
+
+func (h *handler) removeDuplicatesCompletionItems(items *[]lsp.CompletionItem) {
+	keys := make(map[string]bool)
+	list := []lsp.CompletionItem{}
+
+	for _, item := range *items {
+		if _, value := keys[item.Label]; !value {
+			keys[item.Label] = true
+			list = append(list, item)
+		}
+	}
+
+	*items = list
+}
+
+func (h *handler) updateVariables(
+	items *[]lsp.CompletionItem,
+	tree *sitter.Tree,
+	content string,
+	position lsp.Position,
+) {
+	buildLocals(items, tree, content, position)
+	buildIncludes(items, tree, content)
+	buildDependencys(items, tree, content)
 }
 
 func createMarkupContent(doc string) lsp.MarkupContent {
@@ -69,9 +126,32 @@ func createMarkupContent(doc string) lsp.MarkupContent {
 	return markupDoc
 }
 
-func buildLocals(items *[]lsp.CompletionItem, tree *sitter.Tree, content string) {
-	locals := lsplocal.GetLocals(tree, content)
+func deleteCompletionItemsThatHasPrefix(items *[]lsp.CompletionItem, prefix string) {
+	list := []lsp.CompletionItem{}
+	for _, item := range *items {
+		if !strings.HasPrefix(item.Label, prefix) {
+			list = append(list, item)
+		}
+	}
 
+	*items = list
+}
+
+func buildLocals(
+	items *[]lsp.CompletionItem,
+	tree *sitter.Tree,
+	content string,
+	position lsp.Position,
+) {
+	// Quick exit if we are in locals block
+	currentNode := lsplocal.NodeAtPosition(tree, position)
+	if currentNode.Content([]byte(content)) == "locals" {
+		return
+	}
+
+	deleteCompletionItemsThatHasPrefix(items, "local.")
+
+	locals := lsplocal.GetLocals(tree, content)
 	for _, local := range locals {
 		item := lsp.CompletionItem{
 			Kind:       lsp.CompletionItemKindVariable,
@@ -85,6 +165,8 @@ func buildLocals(items *[]lsp.CompletionItem, tree *sitter.Tree, content string)
 }
 
 func buildIncludes(items *[]lsp.CompletionItem, tree *sitter.Tree, content string) {
+	deleteCompletionItemsThatHasPrefix(items, "include.")
+
 	includes := lsplocal.GetIncludes(tree, content)
 
 	for _, include := range includes {
@@ -100,6 +182,8 @@ func buildIncludes(items *[]lsp.CompletionItem, tree *sitter.Tree, content strin
 }
 
 func buildDependencys(items *[]lsp.CompletionItem, tree *sitter.Tree, content string) {
+	deleteCompletionItemsThatHasPrefix(items, "dependency.")
+
 	dependencys := lsplocal.GetDependencys(tree, content)
 
 	for _, dependency := range dependencys {

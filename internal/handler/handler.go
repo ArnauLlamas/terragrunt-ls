@@ -46,7 +46,19 @@ func (h *handler) reqHandler(
 	case lsp.MethodTextDocumentDidOpen:
 		return h.didOpen(ctx, reply, req)
 
+	// case lsp.MethodTextDocumentDidSave:
+	// 	return h.didSave(ctx, reply, req)
+
+	case lsp.MethodTextDocumentDidChange:
+		log.Debug("Method for document change: ", req.Method())
+		return h.didChange(ctx, reply, req)
+
+	case lsp.MethodTextDocumentDidClose:
+		log.Debug("Method for document close: ", req.Method())
+		return h.didClose(ctx, reply, req)
+
 	case lsp.MethodTextDocumentCompletion:
+		log.Debug("Method for completion: ", req.Method())
 		return h.completion(ctx, reply, req)
 
 	default:
@@ -64,7 +76,9 @@ func (h *handler) initialize(
 	return reply(ctx, lsp.InitializeResult{
 		Capabilities: lsp.ServerCapabilities{
 			TextDocumentSync: lsp.TextDocumentSyncOptions{
+				// TODO: check why incremental does not work
 				// Change:    lsp.TextDocumentSyncKindIncremental,
+				Change:    lsp.TextDocumentSyncKindFull,
 				OpenClose: true,
 				Save:      &lsp.SaveOptions{},
 			},
@@ -83,6 +97,31 @@ func (h *handler) didOpen(ctx context.Context, reply jsonrpc2.Replier, req jsonr
 	var params lsp.DidOpenTextDocumentParams
 	json.Unmarshal(req.Params(), &params)
 	h.documents.PushDocument(params)
+
+	return reply(ctx, nil, nil)
+}
+
+func (h *handler) didChange(
+	ctx context.Context,
+	reply jsonrpc2.Replier,
+	req jsonrpc2.Request,
+) error {
+	var params lsp.DidChangeTextDocumentParams
+	json.Unmarshal(req.Params(), &params)
+	h.documents.UpdateDocumentFull(params)
+	// h.documents.UpdateDocumentIncremental(params)
+
+	return reply(ctx, nil, nil)
+}
+
+func (h *handler) didClose(
+	ctx context.Context,
+	reply jsonrpc2.Replier,
+	req jsonrpc2.Request,
+) error {
+	var params lsp.DidCloseTextDocumentParams
+	json.Unmarshal(req.Params(), &params)
+	h.documents.PopDocument(params)
 
 	return reply(ctx, nil, nil)
 }

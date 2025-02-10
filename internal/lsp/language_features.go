@@ -8,7 +8,7 @@ import (
 var HCL *sitter.Language = hcl.GetLanguage()
 
 func IsNodeAtTopLevel(tree *sitter.Tree, node *sitter.Node) bool {
-	return node == tree.RootNode() || node.Parent().Parent() == tree.RootNode().Child(0)
+	return node == tree.RootNode() || node.Parent() == tree.RootNode().Child(0)
 }
 
 func GetLocals(tree *sitter.Tree, content string) []string {
