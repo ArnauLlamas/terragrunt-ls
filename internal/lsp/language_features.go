@@ -52,6 +52,9 @@ func getBlocksAttributes(tree *sitter.Tree, blockPattern []byte, content []byte)
 
 		m = qc.FilterPredicates(m, content)
 		for _, c := range m.Captures {
+			if c.Node.StartPoint().Column != 0 {
+				break
+			}
 			attr := c.Node.NextSibling().NextSibling()
 			for i := 0; i < int(attr.ChildCount()); i++ {
 				attrs = append(attrs, attr.Child(i).Child(0).Content(content))
@@ -76,6 +79,9 @@ func getBlocksLabels(tree *sitter.Tree, blockPattern []byte, content []byte) []s
 
 		m = qc.FilterPredicates(m, content)
 		for _, c := range m.Captures {
+			if c.Node.StartPoint().Column != 0 {
+				break
+			}
 			label := c.Node.NextSibling().Child(1)
 			labels = append(labels, label.Content(content))
 		}
